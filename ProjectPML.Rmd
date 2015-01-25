@@ -1,0 +1,112 @@
+---
+title: "Pratical Machine Learning"
+author: "Chai Sen"
+date: "Tuesday, January 20, 2015"
+output: 
+  html_document:
+    self_contained: no
+---
+
+##Summary
+The aim of this project is to build a prediction model to predict the 20 test cases provided to predict the manner in which they did the exercise.
+
+##Setting up the required libraries and seed
+```{r}
+library(caret)
+library(randomForest)
+
+set.seed(1234)
+```
+
+##Getting the data
+```{r}
+
+#download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "./training.csv")
+#download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile ="./testing.csv")
+
+#read the data into training and testing
+training <- read.csv("training.csv")
+testing <- read.csv("testing.csv")
+```
+
+##Cleaning the data
+cleaning data by removing all those columns which have all NA in testing data set. since the test data observations are all NAs for these columns, they would not help in building the prediction model. Note: we are not training on the testing data set, the prediction model is still based on the training data set.
+```{r}
+#colNA contains all the columns which have all NA in all the observations
+colNA <- colnames(testing[,colSums(is.na(testing)) == nrow(testing)])
+
+#subset new training set so as to remove those columns which are NA
+newTraining <- training[, !names(training) %in% colNA]
+```
+If we take a look at the remaining columns, we would notice that several columns would not help in building the prediction model, to be specific the 1st 7 columns, "X", user_name, raw_timestamp_part_1 etc
+``` {r}
+names(newTraining[, 1:7])
+```
+We could further subset the newTraining data set to remove these useless features, then we will build our model based on these remaining features.
+```{r}
+newTraining <- newTraining[, 8:length(colnames(newTraining))]
+
+```
+
+Partition training sets into validation (30%) and training sets (70%)
+```{r}
+set.seed(1234)
+inTrain <- createDataPartition(y = newTraining$classe, p = 0.7, list = FALSE)
+
+trainingModel <- newTraining[inTrain,]
+validationModel <- newTraining[-inTrain,]
+obs <- dim(trainingModel)[1]
+variables <- dim(trainingModel)[2]
+```
+There are `r obs` obserbations in trainingModel and `r variables` variables in trainingModel.
+
+##Model selection - Random Forest to determine important variables
+Inspired by Quiz 3 Question 5 on variable importance :p i have decided to use random forest's variable importance to determine which variables are more important and build my prediction model based on these variables. However, feeding all `r, variables` variables into the model will take very long time (i waited more than 1 hour still not completed), I shall further subset my trainingModel (about 20%) which will be used to build the random forest model.
+
+```{r, cache=TRUE}
+set.seed(1234)
+inTrainModel <- createDataPartition(y = trainingModel$classe, p = 0.8, list = FALSE)
+trainingVarImpt <- trainingModel[-inTrainModel,]
+trainingRemaining <- trainingModel[inTrainModel,]
+
+#need at least 7mins to complete
+varImpModel <- train(classe ~., data = trainingVarImpt, method = "rf")
+
+varImpt <- varImp(varImpModel)
+plot(varImpt, main = "variable Importance")
+```
+
+Choosing which variables to be used for modelling. I shall pick those importance which is more than 15% to be used for modelling.
+
+```{r}
+topVarImpt <- varImpt$importance[, 1] >= 15
+trainingRemaining <- trainingRemaining[, topVarImpt]
+numVarImpt <- dim(trainingRemaining)[2]
+```
+There are `r numVarImpt` which has more than 15% in the variable importance model
+
+```{r, cache=TRUE}
+# takes 10 mins to run
+finalRFmodel <- train(classe ~. , data = trainingRemaining, method = "rf")
+
+```
+##Validating results - of random forests supported with variable importance
+
+```{r}
+predictValidation <- predict(finalRFmodel, validationModel)
+
+confusionResults <- confusionMatrix(predictValidation, validationModel$classe)
+confusionResults
+
+accuracy <- confusionResults$overall[1]
+#out of sample error aka OSE
+OSE <- 1 - as.numeric(accuracy)
+```
+##Out of Sample Error
+Based on the validation against those observations chosen for validation, the accuracy is `r accuracy` , which means that the out of Sample error is about `r OSE` .
+
+##Conclusion
+```{r}
+answers <- predict(finalRFmodel, testing)
+answers
+```

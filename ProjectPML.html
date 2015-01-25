@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+
+<meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="pandoc" />
+
+<meta name="author" content="Chai Sen" />
+
+
+<title>Pratical Machine Learning</title>
+
+<script src="ProjectPML_files/jquery-1.11.0/jquery.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link href="ProjectPML_files/bootstrap-2.3.2/css/bootstrap.min.css" rel="stylesheet" />
+<link href="ProjectPML_files/bootstrap-2.3.2/css/bootstrap-responsive.min.css" rel="stylesheet" />
+<script src="ProjectPML_files/bootstrap-2.3.2/js/bootstrap.min.js"></script>
+
+<style type="text/css">code{white-space: pre;}</style>
+<link rel="stylesheet"
+      href="ProjectPML_files/highlight/default.css"
+      type="text/css" />
+<script src="ProjectPML_files/highlight/highlight.js"></script>
+<style type="text/css">
+  pre:not([class]) {
+    background-color: white;
+  }
+</style>
+<script type="text/javascript">
+if (window.hljs && document.readyState && document.readyState === "complete") {
+   window.setTimeout(function() {
+      hljs.initHighlighting();
+   }, 0);
+}
+</script>
+
+
+
+</head>
+
+<body>
+
+<style type = "text/css">
+.main-container {
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+<div class="container-fluid main-container">
+
+
+<div id="header">
+<h1 class="title">Pratical Machine Learning</h1>
+<h4 class="author"><em>Chai Sen</em></h4>
+<h4 class="date"><em>Tuesday, January 20, 2015</em></h4>
+</div>
+
+
+<div id="summary" class="section level2">
+<h2>Summary</h2>
+<p>The aim of this project is to build a prediction model to predict the 20 test cases provided to predict the manner in which they did the exercise.</p>
+</div>
+<div id="setting-up-the-required-libraries-and-seed" class="section level2">
+<h2>Setting up the required libraries and seed</h2>
+<pre class="r"><code>library(caret)</code></pre>
+<pre><code>## Loading required package: lattice
+## Loading required package: ggplot2</code></pre>
+<pre class="r"><code>library(randomForest)</code></pre>
+<pre><code>## randomForest 4.6-10
+## Type rfNews() to see new features/changes/bug fixes.</code></pre>
+<pre class="r"><code>set.seed(1234)</code></pre>
+</div>
+<div id="getting-the-data" class="section level2">
+<h2>Getting the data</h2>
+<pre class="r"><code>#download.file(&quot;https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv&quot;, destfile = &quot;./training.csv&quot;)
+#download.file(&quot;https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv&quot;, destfile =&quot;./testing.csv&quot;)
+
+#read the data into training and testing
+training &lt;- read.csv(&quot;training.csv&quot;)
+testing &lt;- read.csv(&quot;testing.csv&quot;)</code></pre>
+</div>
+<div id="cleaning-the-data" class="section level2">
+<h2>Cleaning the data</h2>
+<p>cleaning data by removing all those columns which have all NA in testing data set. since the test data observations are all NAs for these columns, they would not help in building the prediction model. Note: we are not training on the testing data set, the prediction model is still based on the training data set.</p>
+<pre class="r"><code>#colNA contains all the columns which have all NA in all the observations
+colNA &lt;- colnames(testing[,colSums(is.na(testing)) == nrow(testing)])
+
+#subset new training set so as to remove those columns which are NA
+newTraining &lt;- training[, !names(training) %in% colNA]</code></pre>
+<p>If we take a look at the remaining columns, we would notice that several columns would not help in building the prediction model, to be specific the 1st 7 columns, “X”, user_name, raw_timestamp_part_1 etc</p>
+<pre class="r"><code>names(newTraining[, 1:7])</code></pre>
+<pre><code>## [1] &quot;X&quot;                    &quot;user_name&quot;            &quot;raw_timestamp_part_1&quot;
+## [4] &quot;raw_timestamp_part_2&quot; &quot;cvtd_timestamp&quot;       &quot;new_window&quot;          
+## [7] &quot;num_window&quot;</code></pre>
+<p>We could further subset the newTraining data set to remove these useless features, then we will build our model based on these remaining features.</p>
+<pre class="r"><code>newTraining &lt;- newTraining[, 8:length(colnames(newTraining))]</code></pre>
+<p>Partition training sets into validation (30%) and training sets (70%)</p>
+<pre class="r"><code>set.seed(1234)
+inTrain &lt;- createDataPartition(y = newTraining$classe, p = 0.7, list = FALSE)
+
+trainingModel &lt;- newTraining[inTrain,]
+validationModel &lt;- newTraining[-inTrain,]
+obs &lt;- dim(trainingModel)[1]
+variables &lt;- dim(trainingModel)[2]</code></pre>
+<p>There are 13737 obserbations in trainingModel and 53 variables in trainingModel.</p>
+</div>
+<div id="model-selection---random-forest-to-determine-important-variables" class="section level2">
+<h2>Model selection - Random Forest to determine important variables</h2>
+<p>Inspired by Quiz 3 Question 5 on variable importance :p i have decided to use random forest’s variable importance to determine which variables are more important and build my prediction model based on these variables. However, feeding all <code>r, variables</code> variables into the model will take very long time (i waited more than 1 hour still not completed), I shall further subset my trainingModel (about 20%) which will be used to build the random forest model.</p>
+<pre class="r"><code>set.seed(1234)
+inTrainModel &lt;- createDataPartition(y = trainingModel$classe, p = 0.8, list = FALSE)
+trainingVarImpt &lt;- trainingModel[-inTrainModel,]
+trainingRemaining &lt;- trainingModel[inTrainModel,]
+
+#need at least 7mins to complete
+varImpModel &lt;- train(classe ~., data = trainingVarImpt, method = &quot;rf&quot;)
+
+varImpt &lt;- varImp(varImpModel)
+plot(varImpt, main = &quot;variable Importance&quot;)</code></pre>
+<p><img src="ProjectPML_files/figure-html/unnamed-chunk-7-1.png" title="" alt="" width="672" /></p>
+<p>Choosing which variables to be used for modelling. I shall pick those importance which is more than 15% to be used for modelling.</p>
+<pre class="r"><code>topVarImpt &lt;- varImpt$importance[, 1] &gt;= 15
+trainingRemaining &lt;- trainingRemaining[, topVarImpt]
+numVarImpt &lt;- dim(trainingRemaining)[2]</code></pre>
+<p>There are 14 which has more than 15% in the variable importance model</p>
+<pre class="r"><code># takes 10 mins to run
+finalRFmodel &lt;- train(classe ~. , data = trainingRemaining, method = &quot;rf&quot;)</code></pre>
+</div>
+<div id="validating-results---of-random-forests-supported-with-variable-importance" class="section level2">
+<h2>Validating results - of random forests supported with variable importance</h2>
+<pre class="r"><code>predictValidation &lt;- predict(finalRFmodel, validationModel)
+
+confusionResults &lt;- confusionMatrix(predictValidation, validationModel$classe)
+confusionResults</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 1669   21    1    0    0
+##          B    3 1095   12    0    8
+##          C    2   13 1008   10    6
+##          D    0   10    5  954    6
+##          E    0    0    0    0 1062
+## 
+## Overall Statistics
+##                                           
+##                Accuracy : 0.9835          
+##                  95% CI : (0.9799, 0.9866)
+##     No Information Rate : 0.2845          
+##     P-Value [Acc &gt; NIR] : &lt; 2.2e-16       
+##                                           
+##                   Kappa : 0.9791          
+##  Mcnemar&#39;s Test P-Value : NA              
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity            0.9970   0.9614   0.9825   0.9896   0.9815
+## Specificity            0.9948   0.9952   0.9936   0.9957   1.0000
+## Pos Pred Value         0.9870   0.9794   0.9702   0.9785   1.0000
+## Neg Pred Value         0.9988   0.9908   0.9963   0.9980   0.9959
+## Prevalence             0.2845   0.1935   0.1743   0.1638   0.1839
+## Detection Rate         0.2836   0.1861   0.1713   0.1621   0.1805
+## Detection Prevalence   0.2873   0.1900   0.1766   0.1657   0.1805
+## Balanced Accuracy      0.9959   0.9783   0.9880   0.9927   0.9908</code></pre>
+<pre class="r"><code>accuracy &lt;- confusionResults$overall[1]
+#out of sample error aka OSE
+OSE &lt;- 1 - as.numeric(accuracy)</code></pre>
+</div>
+<div id="out-of-sample-error" class="section level2">
+<h2>Out of Sample Error</h2>
+<p>Based on the validation against those observations chosen for validation, the accuracy is 0.9835174 , which means that the out of Sample error is about 0.0164826 .</p>
+</div>
+<div id="conclusion" class="section level2">
+<h2>Conclusion</h2>
+<pre class="r"><code>answers &lt;- predict(finalRFmodel, testing)
+answers</code></pre>
+<pre><code>##  [1] B A B C A E D B A A B C B A E E A B B B
+## Levels: A B C D E</code></pre>
+</div>
+
+
+</div>
+
+<script>
+
+// add bootstrap table styles to pandoc tables
+$(document).ready(function () {
+  $('tr.header').parent('thead').parent('table').addClass('table table-condensed');
+});
+
+</script>
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>
